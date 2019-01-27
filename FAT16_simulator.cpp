@@ -1,8 +1,11 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<time.h>
+#include<string.h>
 #define TRUE 1
 #define FALSE 0
+#define ISCMD(t) strcmp(a, t) == 0
+#define COMMAND_MAX 100
 #define SECTORS_PER_CLUST 1//每簇扇区数
 #define BYTES_PER_SECTOR 512//每扇区字节数
 #define SECTORS_PER_FAT 128//每FAT扇区数
@@ -26,16 +29,77 @@ void DBR_Print();//创建DBR
 void Manu_Print();//打印帮助菜单
 void Bin_Print(long long, int);//以小端序方式打印 
 long long Bin_Read(int);//读取n个字节的小端序数字
+bool Command_Read();//读取命令 
 
 int main(){
 	File_Initialize();
 	Manu_Print();
-	printf("\\root:\\>");
-	getchar();
-//	File_Save();
-	
+	bool FLAG = FALSE;
+	do{
+		printf("\\root:\\>");
+		FLAG = Command_Read();
+	}while(FLAG);
+	return 0;
 	
 }
+
+bool Command_Read(){
+	char str[COMMAND_MAX], a[COMMAND_MAX], b[COMMAND_MAX];
+	gets(str);
+	sscanf(str, "%s%s", a, b);
+	
+	if(ISCMD("ls") || ISCMD("dir")){
+		
+		
+	}else if(ISCMD("cd")){
+		
+		
+		
+	}else if(ISCMD("mkdir")){
+		
+		
+		
+	}else if(ISCMD("create")){
+		
+		
+		
+	}else if(ISCMD("rmdir")){
+		
+		
+	}else if(ISCMD("rm")){
+		
+		
+	}else if(ISCMD("read")){
+		
+		
+	}else if(ISCMD("write")){
+		
+		
+	}else if(ISCMD("format")){
+		printf("Are you sure to FORMAT this disk? (y/n): ");
+		scanf("%s", a);
+		if(ISCMD("y") || ISCMD("Y")){
+			printf("Once again. You'll lose your data, continue? (y/n): ");
+			scanf("%s", a);
+			if(ISCMD("y") || ISCMD("Y")){
+				printf("formating...  ");
+				File_Create_New();
+				printf("done.\n");
+			}
+		}
+		
+		
+	}else if(ISCMD("save")){
+		printf("Are you sure to quit with saving? (y/n): ");
+		scanf("%s", a);
+		if(ISCMD("y") || ISCMD("Y")){
+			File_Save();
+			return FALSE;
+		}
+	}
+	return TRUE;//继续循环 
+}
+
 
 bool File_RW(const int t){//done
 	switch(t){
@@ -135,5 +199,5 @@ void Manu_Print(){//done
 	printf("read [NAME]\t\t\t\tRead a file.\n");
 	printf("write [NAME]\t\t\t\tWrite a file.\n");
 	printf("format\t\t\t\t\tFormat this disk.\n");
-	printf("save\t\t\t\t\tSave this disk.(or you'll lose data)\n");
+	printf("save\t\t\t\t\tSave this disk.(without which you'll lose your data)\n\n\n");
 }
