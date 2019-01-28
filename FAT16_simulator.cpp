@@ -1,5 +1,4 @@
 #include<stdio.h>
-#include<stdlib.h>
 #include<time.h>
 #include<string.h>
 #define TRUE 1
@@ -27,15 +26,20 @@ struct fi{//一个文件
 	int time;//修改时间 
 	int date;//修改日期 
 	int clust;//首簇号
-	long long len;//文件大小 
+	long long len;//文件大小
+	fi *next;//下一个文件 
 }file[1 + CLUST_MAX_COUNT * SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32];
 int FileCnt, Clust_now;//当前文件的总个数与当前的簇 
+fi *HEAD;
 
 bool File_RW(const int);//文件操作，读、写、关闭
 void File_Initialize();//初始化数据文件
 void File_Create_New();//创建新的类FAT16数据文件
 void File_Read();//将数据读入内存 
 void File_Save();//保存文件 
+fi *File_Search(char *);//在已经读入的文件中寻找对应名称的文件 
+void File_List_Update(int);//寻找当前目录下的文件/文件夹
+void File_Print();//打印出所有的文件 
 void DBR_Print();//创建DBR
 void Manu_Print();//打印帮助菜单
 void Bin_Printf(long long, int);//以小端序方式打印 (对文件)
@@ -44,8 +48,8 @@ void Bin_Prints(unsigned char *, long long, int);//以小端序方式打印 (对字符串)
 long long Bin_Reads(unsigned char *, int);//读取n个字节的小端序数字
 bool Command_Read();//读取命令
 void Bubble_Sort();//用冒泡排序把文件按照字典序排序 
-void File_Search(int);//寻找当前目录下的文件/文件夹
-bool Read_32Bytes(unsigned char *, fi *);
+bool Read_32Bytes(unsigned char *, fi *);//读取一个文件/文件夹的信息 
+bool Is_End(unsigned char); //判断该簇是否为最后一个 
 
 int main(){
 	File_Initialize();
@@ -64,13 +68,20 @@ bool Command_Read(){
 	gets(str);
 	sscanf(str, "%s%s", a, b);
 	
+	if(str[0] == 0) return TRUE;
+	
+	File_List_Update(Clust_now);
+//	Bubble_Sort();
 	if(ISCMD("ls") || ISCMD("dir")){
-		
+		File_Print();
 		
 	}else if(ISCMD("cd")){
-		
-		
-		
+		fi *t = File_Search(b);
+		if(t != NULL && t->dir == TRUE)
+			Clust_now = t->clust;
+		else
+			printf("Invalid directory!\n\n");
+			
 	}else if(ISCMD("mkdir")){
 		
 		
@@ -149,6 +160,7 @@ void File_Initialize(){//done
 	
 	File_Read();
 	printf("Data loaded successfully.\n\n");
+	Clust_now = 1;
 	File_RW(3);
 }
 
@@ -182,18 +194,43 @@ void File_Save(){
 	File_RW(3);
 }
 
-void File_Search(int id){
+fi *File_Search(char *name){
+	char *a = name, *b;
+	while(*name != '.' && *name != 0) name++;
+	if(*name != 0){
+		*name = 0;
+		b = name + 1;
+	}
+	
+	for(fi *p = HEAD; p != NULL; p = p->next)
+		if(strcmp(a, p->name[0]) == 0 && strcmp(b, p->name[1]) == 0)
+			return p;//找到了 
+	return NULL;//没找到 
+}
+
+void File_Print(){
+	for(fi *p = HEAD; p != NULL; p = p->next){
+		printf("%s\t\t", p->dir?"<DIR>":"     ");
+		printf("%s",p->name[0]);
+		if(!p->dir && p->name[1] != 0) printf(".%s", p->name[1]);
+		printf("\n");
+	}
+}
+
+void File_List_Update(int id){
 	if(id <= 0) return;
 	for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
 		if(Read_32Bytes(clust[id].byte + 32 * i, &file[FileCnt + 1]))
 			FileCnt++;//明天注意在搜索前把这个置为零 
 	
-	
-	
-	
-	
-	
-	
+	if(!Is_End(clust[id].status))
+		File_List_Update(clust[id].status);
+	else return;
+}
+
+bool Is_End(unsigned char t){
+	if(t >= 0x2 && t <= 0xFFEF) return 0;
+	else return 1;
 }
 
 bool Read_32Bytes(unsigned char *str, fi *a){
@@ -214,6 +251,19 @@ bool Read_32Bytes(unsigned char *str, fi *a){
 	a->clust = Bin_Reads(str, 2);//读取首簇号
 	str += 2;
 	a->len = Bin_Reads(str, 4);//读取文件大小 
+	str += 4;
+}
+
+void Bubble_Sort(){
+	for(int i = 0; i < FileCnt; i++)
+		for(fi *p = HEAD; p->next != NULL; p = p->next)
+			if(strcmp(p->name[0], p->next->name[0]) > 0){
+				/*
+				
+					交换函数要写一下 
+				
+				*/
+			}
 }
 
 void DBR_Print(){//done
@@ -265,7 +315,7 @@ void Bin_Printf(long long sum, int n){//done
 long long Bin_Readf(int n){//done
 	long long sum = 0;
 	unsigned char t;
-	for(int i = 0; i < n ; i++){
+	for(int i = 0; i < n ; i++){ 
 		fscanf(fp, "%c", &t);
 		sum += t << (i * 8);
 	}
