@@ -17,8 +17,8 @@
 FILE *fp;
 
 struct clu{//一个簇 
-	unsigned char status;
-	unsigned char byte[BYTES_PER_SECTOR * SECTORS_PER_CLUST + 10]; //簇里的扇区 
+	char status;
+	char byte[BYTES_PER_SECTOR * SECTORS_PER_CLUST + 10]; //簇里的扇区 
 }clust[CLUST_MAX_COUNT];
 
 struct fi{//一个文件 
@@ -49,11 +49,14 @@ void DBR_Print();//创建DBR
 void Manu_Print();//打印帮助菜单
 void Bin_Printf(long long, int);//以小端序方式打印 (对文件)
 long long Bin_Readf(int);//读取n个字节的小端序数字
-void Bin_Prints(unsigned char *, long long, int);//以小端序方式打印 (对字符串)
-long long Bin_Reads(unsigned char *, int);//读取n个字节的小端序数字
+void Bin_Prints(char *, long long, int);//以小端序方式打印 (对字符串)
+long long Bin_Reads(char *, int);//读取n个字节的小端序数字
+void Bin_scanf(char *, int, char *);//以二进制格式读取字符串的内容 
 bool Command_Read();//读取命令 
-bool Read_32Bytes(unsigned char *, fi *);//读取一个文件/文件夹的信息 
-bool Is_End(unsigned char); //判断该簇是否为最后一个 
+bool Read_32Bytes(char *, fi *);//读取一个文件/文件夹的信息 
+bool Is_End(char); //判断该簇是否为最后一个 
+void Time_Print(int t);//输出时间
+void Date_Print(int t);//输出日期 
 
 int main(){
 	Data_Initialize();
@@ -74,6 +77,7 @@ bool Command_Read(){
 	
 	if(str[0] == 0) return TRUE;
 	
+	File_List_Initialize();
 	File_List_Update(Clust_now);
 //	Bubble_Sort();
 	if(ISCMD("ls") || ISCMD("dir")){
@@ -108,18 +112,17 @@ bool Command_Read(){
 		
 	}else if(ISCMD("format")){
 		printf("Are you sure to FORMAT this disk? (y/n): ");
-		scanf("%s", a);
+		gets(a);
 		if(ISCMD("y") || ISCMD("Y")){
 			printf("Once again. You'll lose your data, continue? (y/n): ");
-			scanf("%s", a);
+			gets(a);
 			if(ISCMD("y") || ISCMD("Y")){
 				printf("formating...  ");
 				Data_RW(2);
 				Data_Create_New();
 				Data_Read();
 				Data_RW(3);
-				printf("done.\n");
-				getchar();
+				printf("done.\n\n");
 			}
 		}
 		
@@ -164,7 +167,7 @@ void Data_Initialize(){//done
 	
 	Data_Read();
 	printf("Data loaded successfully.\n\n");
-	Clust_now = 1;
+	Clust_now = 2;
 	Data_RW(3);
 }
 
@@ -173,9 +176,9 @@ void Data_Read(){
 	for(int i = 0; i <= -1 + SECTORS_PER_FAT * BYTES_PER_SECTOR >> 1; i++)//注意，这里是从0开始读 
 		clust[i].status = (char) Bin_Readf(2);//读取FAT1 
 	fseek(fp, SECTORS_PER_FAT * BYTES_PER_SECTOR, SEEK_CUR);//跳过FAT2
-	fread(clust[1].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_ROOT, fp);//读取根目录 
+	fread(clust[1].byte, sizeof(char), BYTES_PER_SECTOR * SECTORS_ROOT, fp);//读取根目录 
 	for(int i = 2; i <= CLUST_MAX_COUNT; i++)
-		fread(clust[i].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_PER_CLUST, fp);//读取数据区 
+		fread(clust[i].byte, sizeof(char), BYTES_PER_SECTOR * SECTORS_PER_CLUST, fp);//读取数据区 
 }
 
 void Data_Create_New(){//done
@@ -192,9 +195,9 @@ void Data_Save(){
 	for(int j = 0; j <= 1; j++)
 		for(int i = 0; i <= -1 + SECTORS_PER_FAT * BYTES_PER_SECTOR >> 1; i++)
 			Bin_Printf(clust[i].status, 2);//打印FAT表，打印两份
-	fwrite(clust[1].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_ROOT, fp);//保存根目录 
+	fwrite(clust[1].byte, sizeof(char), BYTES_PER_SECTOR * SECTORS_ROOT, fp);//保存根目录 
 	for(int i = 2; i <= CLUST_MAX_COUNT; i++)
-		fwrite(clust[i].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_PER_CLUST, fp);//保存数据区
+		fwrite(clust[i].byte, sizeof(char), BYTES_PER_SECTOR * SECTORS_PER_CLUST, fp);//保存数据区
 	Data_RW(3);
 }
 
@@ -213,12 +216,18 @@ fi *File_Search(char *name){
 }
 
 void File_Print(){
+	printf("\n\n");
 	for(fi *p = HEAD; p != NULL; p = p->next){
-		printf("%s\t\t", p->dir?"<DIR>":"     ");
+		Date_Print(p->date);
+		printf("  ");
+		Time_Print(p->time);
+		printf("  ");
+		printf("%s\t\t", p->dir == TRUE?"<DIR> ":"<FILE>");
 		printf("%s",p->name[0]);
-		if(!p->dir && p->name[1] != 0) printf(".%s", p->name[1]);
+		if(!p->dir && p->name[1][0] != 0) printf(".%s", p->name[1]);
 		printf("\n");
 	}
+	printf("\n\n");
 }
 
 void File_List_Update(int id){
@@ -228,6 +237,7 @@ void File_List_Update(int id){
 	for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
 		if(Read_32Bytes(clust[id].byte + 32 * i, &t)){//如果读取成功，就申请一段新内存来存文件 
 			fi *p = (fi *) malloc(sizeof(fi));
+			*p = t;
 			File_List_Add(p);
 			FileCnt++;
 		}
@@ -240,9 +250,12 @@ void File_List_Update(int id){
 
 void File_List_Initialize(){
 	FileCnt = 0;
+	fi *p;
+	for(fi *pre = HEAD; pre != NULL; pre= p){
+		p = pre->next;
+		free(pre);
+	}
 	HEAD = NULL;
-	
-	
 }
 
 void File_List_Add(fi *p){
@@ -263,22 +276,26 @@ void File_List_Delete(fi *p){
 	}
 }
 
-bool Is_End(unsigned char t){
+bool Is_End(char t){
 	if(t >= 0x2 && t <= 0xFFEF) return 0;
 	else return 1;
 }
 
-bool Read_32Bytes(unsigned char *str, fi *a){
-	sscanf("%8s %3s", a->name[0], a->name[1]);
+bool Read_32Bytes(char *str, fi *a){//done
+	Bin_scanf(str, 8, a->name[0]);
+	Bin_scanf(str + 8, 3, a->name[1]);
+
 	if(a->name[0][0] == 0xE5 || a->name[0][0] == 0){//如果该文件已经被删除或者不存在 
-		fseek(fp, 16, SEEK_CUR);//直接跳过剩下32 - 16 = 16个字节
+		fseek(fp, 21, SEEK_CUR);//直接跳过剩下32 - 11 = 21个字节
 		return FALSE;
 	}
-	str += 16;
-	if(*str++ == 10) a->dir = TRUE; 
+	str = str + 11;
+	if(*str++ == 0x10) //该文件是个目录 
+		a->dir = TRUE; 
 	else a->dir = FALSE;
 	
-	fseek(fp, 10, SEEK_CUR);//跳过10个无意义字节 
+	str += 10;//跳过10个无意义字节 
+	
 	a->time = Bin_Reads(str, 2);//读取时间
 	str += 2;
 	a->date = Bin_Reads(str, 2);//读取日期
@@ -320,7 +337,7 @@ void DBR_Print(){//done
 	Bin_Printf(43605, 2);
 }
 
-void Bin_Prints(unsigned char *str, long long sum, int n){
+void Bin_Prints(char *str, long long sum, int n){
 	long long m;
 	for(int i = 0; i < n; i++){
 		m = sum % 256;
@@ -329,13 +346,12 @@ void Bin_Prints(unsigned char *str, long long sum, int n){
 	}
 }
 
-long long Bin_Reads(unsigned char *str, int n){
+long long Bin_Reads(char *str, int n){//done
 	long long sum = 0;
-	unsigned char t;
+	char t;
 	for(int i = 0; i < n ; i++){
 		t = *str++;	//读取一位并且指针后移 
-//		sscanf(str, "%c", &t);
-		sum += t << (i * 8);
+		sum += t * (1 << (i * 8));
 	}
 	return sum;
 }
@@ -351,12 +367,44 @@ void Bin_Printf(long long sum, int n){//done
 
 long long Bin_Readf(int n){//done
 	long long sum = 0;
-	unsigned char t;
+	char t;
 	for(int i = 0; i < n ; i++){ 
 		fscanf(fp, "%c", &t);
-		sum += t << (i * 8);
+		sum += t * (1 << (i * 8));
 	}
 	return sum;
+}
+
+void Bin_scanf(char *str, int t, char *dest){//done
+	int i = 0;
+	while(i < t){
+		if(*(str + i) != ' ' && *(str + i) != 0){
+			*(dest + i) = *(str + i);
+			i++;
+		}else break;
+	}
+	*(dest + i) = 0;
+}
+
+void Time_Print(int t){//done
+	int h, m, s;
+	s = (t & 0x1F) * 2;//取后五位 
+	t >>= 5;
+	m = t & 0x3F;
+	t >>= 6;
+	h = t & 0x1F;
+	printf("%02d:%02d:%02d", h, m, s);
+}
+
+void Date_Print(int t){//done
+	int y, m, d;
+	d = t & 0x1F;
+	t >>= 5;
+	m = t & 0xF;
+	t >>= 4;
+	y = (t & 0xFF) + 1980;
+	printf("%04d/%02d/%02d", y, m, d);
+	
 }
 
 void Manu_Print(){//done
