@@ -1,6 +1,7 @@
 #include<stdio.h>
 #include<time.h>
 #include<string.h>
+#include<stdlib.h>
 #define TRUE 1
 #define FALSE 0
 #define ISCMD(t) strcmp(a, t) == 0
@@ -30,15 +31,19 @@ struct fi{//一个文件
 	fi *next;//下一个文件 
 }file[1 + CLUST_MAX_COUNT * SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32];
 int FileCnt, Clust_now;//当前文件的总个数与当前的簇 
-fi *HEAD;
+fi *HEAD;//头指针 
 
-bool File_RW(const int);//文件操作，读、写、关闭
-void File_Initialize();//初始化数据文件
-void File_Create_New();//创建新的类FAT16数据文件
-void File_Read();//将数据读入内存 
-void File_Save();//保存文件 
+bool Data_RW(const int);//文件操作，读、写、关闭
+void Data_Initialize();//初始化数据文件
+void Data_Create_New();//创建新的类FAT16数据文件
+void Data_Read();//将数据读入内存 
+void Data_Save();//保存文件 
 fi *File_Search(char *);//在已经读入的文件中寻找对应名称的文件 
 void File_List_Update(int);//寻找当前目录下的文件/文件夹
+void File_List_Initialize();//文件列表清空 
+void File_List_Add(fi *);//在文件列表中加入一个元素 
+void File_List_Delete(fi *p);//在文件列表中删除一个元素 
+void Bubble_Sort();//用冒泡排序把文件按照字典序排序
 void File_Print();//打印出所有的文件 
 void DBR_Print();//创建DBR
 void Manu_Print();//打印帮助菜单
@@ -46,13 +51,12 @@ void Bin_Printf(long long, int);//以小端序方式打印 (对文件)
 long long Bin_Readf(int);//读取n个字节的小端序数字
 void Bin_Prints(unsigned char *, long long, int);//以小端序方式打印 (对字符串)
 long long Bin_Reads(unsigned char *, int);//读取n个字节的小端序数字
-bool Command_Read();//读取命令
-void Bubble_Sort();//用冒泡排序把文件按照字典序排序 
+bool Command_Read();//读取命令 
 bool Read_32Bytes(unsigned char *, fi *);//读取一个文件/文件夹的信息 
 bool Is_End(unsigned char); //判断该簇是否为最后一个 
 
 int main(){
-	File_Initialize();
+	Data_Initialize();
 	Manu_Print();
 	bool FLAG = FALSE;
 	do{
@@ -110,10 +114,10 @@ bool Command_Read(){
 			scanf("%s", a);
 			if(ISCMD("y") || ISCMD("Y")){
 				printf("formating...  ");
-				File_RW(2);
-				File_Create_New();
-				File_Read();
-				File_RW(3);
+				Data_RW(2);
+				Data_Create_New();
+				Data_Read();
+				Data_RW(3);
 				printf("done.\n");
 				getchar();
 			}
@@ -124,7 +128,7 @@ bool Command_Read(){
 		printf("Are you sure to quit with saving? (y/n): ");
 		scanf("%s", a);
 		if(ISCMD("y") || ISCMD("Y")){
-			File_Save();
+			Data_Save();
 			return FALSE;
 		}
 		
@@ -136,7 +140,7 @@ bool Command_Read(){
 }
 
 
-bool File_RW(const int t){//done
+bool Data_RW(const int t){//done
 	switch(t){
 		case 1: //只读 
 			fp = fopen("fat16_data.bin", "rb");
@@ -150,21 +154,21 @@ bool File_RW(const int t){//done
 	}
 }
 
-void File_Initialize(){//done
-	if(File_RW(1) == FALSE){
+void Data_Initialize(){//done
+	if(Data_RW(1) == FALSE){
 		printf("Disk data doesn't exist. \nCreating a new one...\n");
-		File_Create_New();
+		Data_Create_New();
 	}
-	File_RW(3);//关闭文件 
-	File_RW(1);//只读模式 
+	Data_RW(3);//关闭文件 
+	Data_RW(1);//只读模式 
 	
-	File_Read();
+	Data_Read();
 	printf("Data loaded successfully.\n\n");
 	Clust_now = 1;
-	File_RW(3);
+	Data_RW(3);
 }
 
-void File_Read(){
+void Data_Read(){
 	fseek(fp, BYTES_PER_SECTOR, SEEK_CUR);//跳过DBR区域 
 	for(int i = 0; i <= -1 + SECTORS_PER_FAT * BYTES_PER_SECTOR >> 1; i++)//注意，这里是从0开始读 
 		clust[i].status = (char) Bin_Readf(2);//读取FAT1 
@@ -174,16 +178,16 @@ void File_Read(){
 		fread(clust[i].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_PER_CLUST, fp);//读取数据区 
 }
 
-void File_Create_New(){//done
-	File_RW(2);
+void Data_Create_New(){//done
+	Data_RW(2);
 	DBR_Print();
 	for(int i = 1; i <= (SECTORS_PER_FAT * 2 + SECTORS_PER_CLUST * CLUST_MAX_COUNT) * BYTES_PER_SECTOR; i++)
 		fprintf(fp, "%c", 0);//把空扇区刷为0
-	File_RW(3);
+	Data_RW(3);
 }
 
-void File_Save(){
-	File_RW(2);
+void Data_Save(){
+	Data_RW(2);
 	DBR_Print();
 	for(int j = 0; j <= 1; j++)
 		for(int i = 0; i <= -1 + SECTORS_PER_FAT * BYTES_PER_SECTOR >> 1; i++)
@@ -191,7 +195,7 @@ void File_Save(){
 	fwrite(clust[1].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_ROOT, fp);//保存根目录 
 	for(int i = 2; i <= CLUST_MAX_COUNT; i++)
 		fwrite(clust[i].byte, sizeof(unsigned char), BYTES_PER_SECTOR * SECTORS_PER_CLUST, fp);//保存数据区
-	File_RW(3);
+	Data_RW(3);
 }
 
 fi *File_Search(char *name){
@@ -219,13 +223,44 @@ void File_Print(){
 
 void File_List_Update(int id){
 	if(id <= 0) return;
-	for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
-		if(Read_32Bytes(clust[id].byte + 32 * i, &file[FileCnt + 1]))
-			FileCnt++;//明天注意在搜索前把这个置为零 
 	
-	if(!Is_End(clust[id].status))
+	fi t;
+	for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
+		if(Read_32Bytes(clust[id].byte + 32 * i, &t)){//如果读取成功，就申请一段新内存来存文件 
+			fi *p = (fi *) malloc(sizeof(fi));
+			File_List_Add(p);
+			FileCnt++;
+		}
+			
+	
+	if(!Is_End(clust[id].status))//如果这个簇后面还有文件 就继续读取 
 		File_List_Update(clust[id].status);
 	else return;
+}
+
+void File_List_Initialize(){
+	FileCnt = 0;
+	HEAD = NULL;
+	
+	
+}
+
+void File_List_Add(fi *p){
+	p->next = HEAD;//直接在头部添加上新结点 
+	HEAD = p;
+	FileCnt++;
+}
+
+void File_List_Delete(fi *p){
+	if(HEAD == p){//如果p是头 
+		HEAD = p->next;
+		free(p);
+	}else{//如果p不是头 
+		fi *pre = HEAD;
+		while(pre->next != p) pre = pre->next;
+		pre->next = p->next;
+		free(p);
+	}
 }
 
 bool Is_End(unsigned char t){
@@ -252,6 +287,8 @@ bool Read_32Bytes(unsigned char *str, fi *a){
 	str += 2;
 	a->len = Bin_Reads(str, 4);//读取文件大小 
 	str += 4;
+	
+	return TRUE;
 }
 
 void Bubble_Sort(){
