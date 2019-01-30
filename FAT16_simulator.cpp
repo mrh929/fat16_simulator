@@ -1,4 +1,4 @@
- #include<stdio.h>
+#include<stdio.h>
 #include<time.h>
 #include<string.h>
 #include<stdlib.h>
@@ -32,6 +32,8 @@ struct fi{//一个文件
 }file[1 + CLUST_MAX_COUNT * SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32];
 int FileCnt, Clust_now;//当前文件的总个数与当前的簇 
 fi *HEAD;//头指针 
+char *dir[10000];//存放所有文件夹名字的数组
+int dir_now; 
 
 bool Data_RW(const int);//文件操作，读、写、关闭
 void Data_Initialize();//初始化数据文件
@@ -42,7 +44,6 @@ fi *File_Search(char *);//在已经读入的文件中寻找对应名称的文件
 void File_List_Update(int);//寻找当前目录下的文件/文件夹
 void File_List_Initialize();//文件列表清空 
 void File_List_Add(fi *);//在文件列表中加入一个元素 
-void File_List_Delete(fi *p);//在文件列表中删除一个元素 
 void Bubble_Sort();//用冒泡排序把文件按照字典序排序
 void File_Print();//打印出所有的文件 
 void DBR_Print();//创建DBR
@@ -52,22 +53,29 @@ long long Bin_Readf(int);//读取n个字节的小端序数字
 void Bin_Prints(char *, long long, int);//以小端序方式打印 (对字符串)
 long long Bin_Reads(char *, int);//读取n个字节的小端序数字
 void Bin_scanf(char *, int, char *);//以二进制格式读取字符串的内容 
-void Bin_strprint(char *,int);
+void Bin_strprint(char *,int);//向字符串中输出信息 
 bool Command_Read();//读取命令 
 bool Read_32Bytes(char *, fi *);//读取一个文件/文件夹的信息
-void Print_32Bytes(fi *);
+void Print_32Bytes(fi *);//向文件中输出文件/文件夹的信息 
 bool Is_End(char); //判断该簇是否为最后一个 
 void Time_Print(int t);//输出时间
 void Date_Print(int t);//输出日期 
 int Time_Get();//获取当前时间 
 int Date_Get();//获取当前日期 
+void Dir_Change(char *, bool);//更改目录位置 
+void Dir_Print();//打印当前目录
+int Dir_Find_Empty(int);//在一个簇里面寻找空的位置 
 
 int main(){
 	Data_Initialize();
 	Manu_Print();
 	bool FLAG = FALSE;
+	char rt[6] = "root:";
+	dir_now = 0;
+	dir[dir_now] = rt;
 	do{
-		printf("\\root:\\>");
+		Dir_Print();
+		printf(">");
 		FLAG = Command_Read();
 	}while(FLAG);
 	return 0;
@@ -85,34 +93,76 @@ bool Command_Read(){
 	File_List_Update(Clust_now);
 	Bubble_Sort();
 	if(ISCMD("ls") || ISCMD("dir")){
+		printf("\n\n");
+		Dir_Print();
+		printf(" contains the following files or directories:\n");
 		File_Print();
 		
 	}else if(ISCMD("cd")){
 		fi *t = File_Search(b);
-		if(t != NULL && t->dir == TRUE)
+		if(t != NULL && t->dir == TRUE){
 			Clust_now = t->clust;
-		else
+			if(strcmp(b, "..") == 0){
+				if(dir_now != 0)
+					Dir_Change(b, FALSE);//回退
+			}
+			else if(strcmp(b, ".") !=0)
+				Dir_Change(a, FALSE);
+		}else
 			printf("Invalid directory!\n\n");
 			
 	}else if(ISCMD("mkdir")){
-		
+		fi *t = File_Search(b);
+		if(t != NULL){//如果这个文件夹已经存在，就返回错误
+			printf("Directory already exists!");
+			return TRUE;
+		}else{
+			int nxtClust = Clust_now;
+			int p = Dir_Find_Empty(nxtClust);
+			while(p == -1){
+				if(Is_End(clust[nxtClust].status) == 0)
+					nxtClust = clust[nxtClust].status;//如果这个链表的其他簇还有空位 
+				else{
+					nxtClust = 2;//这个链表中已经不存在空位了，要找一个空簇 
+					while(clust[nxtClust].status != 0) nxtClust++;
+				}
+				p = Dir_Find_Empty(nxtClust);;
+			}
+			
+			
+			/*
+					接下来要在开辟的空间中 填充文件夹信息，并且建立. 和..文件夹 
+			
+			*/
+			
+		}
 		
 		
 	}else if(ISCMD("create")){
-		
+		//类似于新建文件夹，但是不用新建 .和.. 
 		
 		
 	}else if(ISCMD("rmdir")){
-		
+		/*
+			直接找到那个文件，首先递归删除该文件夹下的所有内容
+			然后再把本身 标记为删除 
+		*/ 
 		
 	}else if(ISCMD("rm")){
-		
+		//类似于删除文件夹，但不用递归删除 
 		
 	}else if(ISCMD("read")){
+		/*
+			根据簇号直接搜索到对应的文件并且读入 
 		
+		*/
 		
 	}else if(ISCMD("write")){
+		/*
+			边写文件边开新的簇 
 		
+		
+		*/
 		
 	}else if(ISCMD("format")){
 		printf("Are you sure to FORMAT this disk? (y/n): ");
@@ -268,7 +318,6 @@ void File_List_Update(int id){
 			fi *p = (fi *) malloc(sizeof(fi));
 			*p = t;
 			File_List_Add(p);
-			FileCnt++;
 		}
 			
 	
@@ -293,21 +342,10 @@ void File_List_Add(fi *p){
 	FileCnt++;
 }
 
-void File_List_Delete(fi *p){
-	if(HEAD == p){//如果p是头 
-		HEAD = p->next;
-		free(p);
-	}else{//如果p不是头 
-		fi *pre = HEAD;
-		while(pre->next != p) pre = pre->next;
-		pre->next = p->next;
-		free(p);
-	}
-}
-
 bool Is_End(char t){
-	if(t >= 0x2 && t <= 0xFFEF) return 0;
-	else return 1;
+	if(t >= 0x2 && t <= 0xFFEF) return 0;//还有连接的簇 
+	else if(t == 0xFFFF) return 1;//文件结束
+	else return 2;//空簇 
 }
 
 bool Read_32Bytes(char *str, fi *a){//done
@@ -476,6 +514,26 @@ int Date_Get(){
     lt = localtime (&t);//转为时间结构。
     lt->tm_year += 1900;
 	return (lt->tm_year - 1980) * 512 + (lt->tm_mon * 32) + (lt->tm_mday);
+}
+
+void Dir_Change(char *p, bool NEW){
+	if(NEW == FALSE)
+		dir_now--;
+	else
+		dir[++dir_now] = p;
+}
+
+void Dir_Print(){
+	printf("\\");
+	for(int i = 0; i <= dir_now; i++)
+		printf("%s\\",dir[i]);
+}
+
+int Dir_Find_Empty(int id){
+	for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
+		if(clust[id].byte[i * 32] == 0xE5 || clust[id].byte[i * 32] == 0)
+			return i;
+	return -1;//没找到一个空位 
 }
 
 void Manu_Print(){//done
