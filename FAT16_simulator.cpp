@@ -1,4 +1,4 @@
-#include<stdio.h>
+ #include<stdio.h>
 #include<time.h>
 #include<string.h>
 #include<stdlib.h>
@@ -52,11 +52,15 @@ long long Bin_Readf(int);//读取n个字节的小端序数字
 void Bin_Prints(char *, long long, int);//以小端序方式打印 (对字符串)
 long long Bin_Reads(char *, int);//读取n个字节的小端序数字
 void Bin_scanf(char *, int, char *);//以二进制格式读取字符串的内容 
+void Bin_strprint(char *,int);
 bool Command_Read();//读取命令 
-bool Read_32Bytes(char *, fi *);//读取一个文件/文件夹的信息 
+bool Read_32Bytes(char *, fi *);//读取一个文件/文件夹的信息
+void Print_32Bytes(fi *);
 bool Is_End(char); //判断该簇是否为最后一个 
 void Time_Print(int t);//输出时间
 void Date_Print(int t);//输出日期 
+int Time_Get();//获取当前时间 
+int Date_Get();//获取当前日期 
 
 int main(){
 	Data_Initialize();
@@ -79,7 +83,7 @@ bool Command_Read(){
 	
 	File_List_Initialize();
 	File_List_Update(Clust_now);
-//	Bubble_Sort();
+	Bubble_Sort();
 	if(ISCMD("ls") || ISCMD("dir")){
 		File_Print();
 		
@@ -167,7 +171,7 @@ void Data_Initialize(){//done
 	
 	Data_Read();
 	printf("Data loaded successfully.\n\n");
-	Clust_now = 2;
+	Clust_now = 1;
 	Data_RW(3);
 }
 
@@ -184,7 +188,27 @@ void Data_Read(){
 void Data_Create_New(){//done
 	Data_RW(2);
 	DBR_Print();
-	for(int i = 1; i <= (SECTORS_PER_FAT * 2 + SECTORS_PER_CLUST * CLUST_MAX_COUNT) * BYTES_PER_SECTOR; i++)
+	
+	for(int k = 0; k <= 1; k++){//填充FAT区域 
+		fprintf(fp, "%c", 0xFF);
+		fprintf(fp, "%c", 0xFF);
+		for(int i = 1; i <= SECTORS_PER_FAT * BYTES_PER_SECTOR - 2; i++)
+			fprintf(fp, "%c", 0);
+	}
+	
+	fi *p = (fi*) malloc(sizeof(fi));
+	p->clust = 1;
+	p->len = 0;
+	p->dir = TRUE;
+	p->time = Time_Get();
+	p->date = Date_Get();
+	p->name[1][0] = 0;
+	strcpy(p->name[0], ".");
+	Print_32Bytes(p);
+	strcpy(p->name[0], "..");
+	Print_32Bytes(p);
+	
+	for(int i = 2; i < (SECTORS_PER_CLUST * CLUST_MAX_COUNT) * BYTES_PER_SECTOR; i++)
 		fprintf(fp, "%c", 0);//把空扇区刷为0
 	Data_RW(3);
 }
@@ -203,10 +227,15 @@ void Data_Save(){
 
 fi *File_Search(char *name){
 	char *a = name, *b;
-	while(*name != '.' && *name != 0) name++;
-	if(*name != 0){
-		*name = 0;
-		b = name + 1;
+	if(strcmp(a, "..") == 0 || strcmp(a, ".") == 0){
+		b = (char*) malloc(sizeof(char));
+		*b = 0;
+	}else{
+		while(*name != '.' && *name != 0) name++;
+		if(*name != 0){
+			*name = 0;
+			b = name + 1;
+		}
 	}
 	
 	for(fi *p = HEAD; p != NULL; p = p->next)
@@ -308,15 +337,34 @@ bool Read_32Bytes(char *str, fi *a){//done
 	return TRUE;
 }
 
+void Print_32Bytes(fi *t){
+	Bin_strprint(t->name[0], 8);
+	Bin_strprint(t->name[1], 3);
+	if(t->dir == TRUE)
+		fprintf(fp, "%c", 0x10);
+	else
+		fprintf(fp, "%c", 0x20);
+	for(int i = 1; i <= 10; i++)
+		fprintf(fp, "%c", 0xFF);
+	Bin_Printf(t->time, 2);
+	Bin_Printf(t->date, 2);
+	Bin_Printf(t->clust, 2);
+	Bin_Printf(t->len, 4);
+}
+
 void Bubble_Sort(){
 	for(int i = 0; i < FileCnt; i++)
 		for(fi *p = HEAD; p->next != NULL; p = p->next)
 			if(strcmp(p->name[0], p->next->name[0]) > 0){
-				/*
+				fi _a, _b, *pnx;//交换函数
+				pnx = p->next;
+				_a = *p;
+				_b = *pnx;
 				
-					交换函数要写一下 
-				
-				*/
+				*p = _b;
+				*pnx = _a;
+				p->next = _a.next;
+				pnx->next = _b.next;
 			}
 }
 
@@ -386,6 +434,11 @@ void Bin_scanf(char *str, int t, char *dest){//done
 	*(dest + i) = 0;
 }
 
+void Bin_strprint(char *str,int n){
+	for(int i = 0; i < n; i++)
+		fprintf(fp, "%c", *(str + i));
+}
+
 void Time_Print(int t){//done
 	int h, m, s;
 	s = (t & 0x1F) * 2;//取后五位 
@@ -405,6 +458,24 @@ void Date_Print(int t){//done
 	y = (t & 0xFF) + 1980;
 	printf("%04d/%02d/%02d", y, m, d);
 	
+}
+
+int Time_Get(){
+	time_t t;
+    struct tm * lt;
+	time (&t);//获取Unix时间戳。
+    lt = localtime (&t);//转为时间结构。
+    lt->tm_hour++;
+	return (lt->tm_hour * 2048) + (lt->tm_min * 32) + (lt->tm_sec / 2);
+}
+
+int Date_Get(){
+	time_t t;
+    struct tm * lt;
+	time (&t);//获取Unix时间戳。
+    lt = localtime (&t);//转为时间结构。
+    lt->tm_year += 1900;
+	return (lt->tm_year - 1980) * 512 + (lt->tm_mon * 32) + (lt->tm_mday);
 }
 
 void Manu_Print(){//done
