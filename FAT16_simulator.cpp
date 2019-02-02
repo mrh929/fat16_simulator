@@ -65,7 +65,7 @@ bool Str_Read_32Bytes(char *, fi *);//读取一个文件/文件夹的信息
 void Str_Printf_32Bytes(char *, fi *);//向字符串中输出文件/文件夹的信息
 void Str_Cut_Name_Into_Two(char *, char*, char*);//将一个文件名分隔为两部分 
 
-bool Clust_Judge_Status(int); //判断该簇的状态 
+int Clust_Judge_Status(int); //判断该簇的状态 
 void Time_Print(int t);//输出时间
 void Date_Print(int t);//输出日期 
 int Time_Get();//获取当前时间 
@@ -152,13 +152,13 @@ bool Command_Read(){
 			k = Dir_Find_Empty(Clust_temp);//重新寻找空位 
 		}
 			
-		fi *F = (fi*) malloc(sizeof(fi*));//填充基本信息 
+		fi *F = (fi*) malloc(sizeof(fi));//填充基本信息 
 		Make_a_New_File(F, TRUE);
 		clust[Clust_temp].status = 0xFFFF;
 		strcpy(F->name[0], b);//修改文件夹名称 
 		Data_Add_A_File(F, Clust_temp, k);//把文件写入簇 
 		
-		fi *temp = (fi*) malloc(sizeof(fi*));//再拿一个临时变量
+		fi *temp = (fi*) malloc(sizeof(fi));//再拿一个临时变量
 		Make_a_New_File(temp, TRUE);
 		
 		char *p = clust[F->clust].byte;
@@ -206,7 +206,7 @@ bool Command_Read(){
 			k = Dir_Find_Empty(Clust_temp);//重新寻找空位 
 		}
 			
-		fi *F = (fi*) malloc(sizeof(fi*));//填充基本信息 
+		fi *F = (fi*) malloc(sizeof(fi));//填充基本信息 
 		Make_a_New_File(F, FALSE);
 		clust[Clust_temp].status = 0xFFFF;
 		
@@ -228,9 +228,9 @@ bool Command_Read(){
 		
 		char temp[20];
 		strcpy(temp, b);
-		Str_Cut_Name_Into_Two(temp, a, b);
+		Str_Cut_Name_Into_Two(temp, a, b);//把文件名分割一下 
 		char *st = clust[Clust_now].byte;
-		for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++){
+		for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++){//寻找到簇中的那个文件，并且打上0xe5标记 
 			fi *p = (fi*) malloc(sizeof(fi));
 			
 			Str_Read_32Bytes(st + i * 32, p);
@@ -270,17 +270,74 @@ bool Command_Read(){
 			}
 		}		
 		
-		
-		
 		//类似于删除文件夹，但不用递归删除 
 		
 	}else if(ISCMD("read")){
+		fi *t = Filelist_Search_File(b, FALSE);
+		if(t == NULL){
+			printf("no such a file!\n");
+			return TRUE;
+		}
+		
+		int nxtClust = t->clust;
+		bool flag = 1;
+		printf("\nThis is what %s contains:", b);
+		printf("\n----------------------------\n");
+		while(flag == 1){
+			for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR; i++){
+				if(clust[nxtClust].byte[i] == 0){
+					flag = 0;
+					break;
+				}
+				printf("%c",clust[nxtClust].byte[i]);
+			}
+			if(Clust_Judge_Status(clust[nxtClust].status) == 1)
+				flag = 0;
+			else
+				nxtClust = clust[nxtClust].status;
+		}
+		printf("\n----------------------------\n\n");
+		
+		
 		/*
 			根据簇号直接搜索到对应的文件并且读入 
 		
 		*/
 		
 	}else if(ISCMD("write")){
+		
+		fi *t = Filelist_Search_File(b, FALSE);
+		if(t == NULL){
+			printf("no such a file!\n");
+			return TRUE;
+		}
+		
+		
+		int nxtClust = t->clust;
+		bool flag = 1;
+		char c;
+		while(flag == 1){
+			for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR; i++){
+				c = getchar();
+				if(c == -1){
+					flag = 0;
+					clust[nxtClust].byte[i] = 0;
+					break;
+				}else
+					clust[nxtClust].byte[i] = c;
+			}
+			clust[nxtClust].status = 0xFFFF;
+			if(flag == 0) break;
+			if(Clust_Judge_Status(clust[nxtClust].status) == 0)
+				nxtClust = clust[nxtClust].status;
+			else{
+				int tempClust = 2;
+				while(Clust_Judge_Status(clust[tempClust].status) != 2) 
+					tempClust++;
+				clust[nxtClust].status = tempClust;
+				nxtClust = tempClust;
+			}
+		}
 		/*
 			边写文件边开新的簇 
 		
@@ -457,7 +514,7 @@ void Filelist_Add_File(fi *p){
 	FileCnt++;
 }
 
-bool Clust_Judge_Status(int t){
+int Clust_Judge_Status(int t){
 	if(t >= 0x2 && t <= 0xFFEF) return 0;//还有连接的簇 
 	else if(t == 0xFFFF) return 1;//文件结束
 	else return 2;//空簇 
@@ -668,7 +725,7 @@ void Date_Print(int t){//done
 
 int Time_Get(){//done
 	time_t t;
-    struct tm * lt;
+    struct tm *lt;
 	time (&t);//获取Unix时间戳。
     lt = localtime (&t);//转为时间结构。
 	return (lt->tm_hour * 2048) + (lt->tm_min * 32) + (lt->tm_sec / 2);
@@ -676,7 +733,7 @@ int Time_Get(){//done
 
 int Date_Get(){//done
 	time_t t;
-    struct tm * lt;
+    struct tm *lt;
 	time (&t);//获取Unix时间戳。
     lt = localtime (&t);//转为时间结构。
     lt->tm_year += 1900;
@@ -708,8 +765,8 @@ void Make_a_New_File(fi *p, bool IsDir){
 	p->clust = 1;
 	p->len = 0;
 	p->dir = IsDir;
-//	p->time = Time_Get();
-//	p->date = Date_Get();
+	p->time = Time_Get();
+	p->date = Date_Get();
 	p->name[1][0] = 0;
 }
 
