@@ -46,7 +46,7 @@ void Data_Save();//保存文件
 void Data_DBR_Print();//创建DBR
 void Data_Add_A_File(fi *, int, int);//将clust中指定位置的字符串填充为新文件的信息 
 
-fi *Filelist_Search_File(char *);//在已经读入的文件中寻找对应名称的文件 
+fi *Filelist_Search_File(char *, bool);//在已经读入的文件中寻找对应名称的文件 
 void Filelist_Update(int);//更新文件列表 
 void Filelist_Destroy();//文件列表清空 
 void Filelist_Add_File(fi *);//在文件列表中加入一个元素 
@@ -75,6 +75,8 @@ void Dir_Change(char *, bool);//更改目录位置
 void Dir_Print();//打印当前目录
 int Dir_Find_Empty(int);//在一个簇里面寻找空的位置 
 void Make_a_New_File(fi *, bool);//返回一个创建好的空文件 
+void Clust_Clear_File(int);//清理某个簇内的文件的所有信息 
+void Clust_Clear_Dir(int);//清理某个簇内的所有文件夹 
 
 int main(){
 	Data_Initialize();
@@ -113,7 +115,7 @@ bool Command_Read(){
 	}else if(ISCMD("cd")){
 		char temp[20];
 		strcpy(temp, b);
-		fi *t = Filelist_Search_File(temp);
+		fi *t = Filelist_Search_File(temp, TRUE);
 		if(t != NULL && t->dir == TRUE){
 			Clust_now = t->clust;
 			if(strcmp(b, "..") == 0){
@@ -126,7 +128,7 @@ bool Command_Read(){
 			printf("Invalid directory!\n\n");
 			
 	}else if(ISCMD("mkdir")){
-		fi *t = Filelist_Search_File(b);
+		fi *t = Filelist_Search_File(b, TRUE);
 		if(t != NULL){//如果这个文件夹已经存在，就返回错误
 			printf("Directory already exists!\n");
 			return TRUE;
@@ -174,7 +176,7 @@ bool Command_Read(){
 		
 	}else if(ISCMD("create")){
 		//类似于新建文件夹，但是不用新建 .和.. 
-		fi *t = Filelist_Search_File(b);
+		fi *t = Filelist_Search_File(b, FALSE);
 		if(t != NULL){//如果这个文件夹已经存在，就返回错误
 			printf("Directory already exists!\n");
 			return TRUE;
@@ -214,12 +216,62 @@ bool Command_Read(){
 		Data_Add_A_File(F, Clust_temp, k);//把文件写入簇
 		
 	}else if(ISCMD("rmdir")){
+		
+		fi *t = Filelist_Search_File(b, TRUE);
+		if(t == NULL){
+			printf("no such a directory!\n");
+			return TRUE;
+		}
+		
+		Clust_Clear_Dir(t->clust);
+		
+		
+		char temp[20];
+		strcpy(temp, b);
+		Str_Cut_Name_Into_Two(temp, a, b);
+		char *st = clust[Clust_now].byte;
+		for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++){
+			fi *p = (fi*) malloc(sizeof(fi));
+			
+			Str_Read_32Bytes(st + i * 32, p);
+			if(strcmp(p->name[0], a) == 0 && strcmp(p->name[1], b) == 0 && p->dir == TRUE){
+				*(st + i * 32) = 0xE5;
+				break;
+			}
+		}
+		
 		/*
 			直接找到那个文件，首先递归删除该文件夹下的所有内容
 			然后再把本身 标记为删除 
 		*/ 
 		
 	}else if(ISCMD("rm")){
+		
+		fi *t = Filelist_Search_File(b, FALSE);
+		if(t == NULL){
+			printf("no such a file!\n");
+			return TRUE;
+		}
+		
+		Clust_Clear_File(t->clust);
+		
+		char *st = clust[Clust_now].byte;
+		char temp[20];
+		strcpy(temp, b);
+		Str_Cut_Name_Into_Two(temp, a, b);
+		
+		for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++){
+			fi *p = (fi*) malloc(sizeof(fi));
+			Str_Read_32Bytes(st + i * 32, p);
+			
+			if(strcmp(p->name[0], a) == 0 && strcmp(p->name[1], b) == 0 && p->dir == FALSE){
+				*(st + i * 32) = 0xE5;
+				break;
+			}
+		}		
+		
+		
+		
 		//类似于删除文件夹，但不用递归删除 
 		
 	}else if(ISCMD("read")){
@@ -344,12 +396,12 @@ void Data_Save(){
 	Data_ReadOrWrite(3);
 }
 
-fi *Filelist_Search_File(char *name){
+fi *Filelist_Search_File(char *name, bool IsDir){
 	char a[20], b[20];
 	Str_Cut_Name_Into_Two(name, a, b);
 	
 	for(fi *p = HEAD; p != NULL; p = p->next)
-		if(strcmp(a, p->name[0]) == 0 && strcmp(b, p->name[1]) == 0)
+		if(strcmp(a, p->name[0]) == 0 && strcmp(b, p->name[1]) == 0 && p->dir == IsDir)
 			return p;//找到了 
 			
 			
@@ -414,8 +466,8 @@ bool Clust_Judge_Status(int t){
 bool Str_Read_32Bytes(char *str, fi *a){//done
 	Str_Scanf_String(str, 8, a->name[0]);
 	Str_Scanf_String(str + 8, 3, a->name[1]);
-
-	if(a->name[0][0] == 0xE5 || a->name[0][0] == 0){//如果该文件已经被删除或者不存在 
+//这下面吧0xE5改为了-27 （ascii码相同） 
+	if(a->name[0][0] == -27 || a->name[0][0] == 0){//如果该文件已经被删除或者不存在 
 		fseek(fp, 21, SEEK_CUR);//直接跳过剩下32 - 11 = 21个字节
 		return FALSE;
 	}
@@ -647,7 +699,7 @@ void Dir_Print(){
 
 int Dir_Find_Empty(int id){
 	for(int i = 0; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
-		if(clust[id].byte[i * 32] == 0xE5 || clust[id].byte[i * 32] == 0)
+		if(clust[id].byte[i * 32] == -27 || clust[id].byte[i * 32] == 0)
 			return i;
 	return -1;//没找到一个空位 
 }
@@ -656,9 +708,36 @@ void Make_a_New_File(fi *p, bool IsDir){
 	p->clust = 1;
 	p->len = 0;
 	p->dir = IsDir;
-	p->time = Time_Get();
-	p->date = Date_Get();
+//	p->time = Time_Get();
+//	p->date = Date_Get();
 	p->name[1][0] = 0;
+}
+
+void Clust_Clear_File(int id){
+	if(Clust_Judge_Status(clust[id].status) == 0)//还有连接的簇 
+		Clust_Clear_File(clust[id].status);
+	clust[id].status = 0;//标记为未使用 
+	return;
+}
+
+void Clust_Clear_Dir(int id){
+	//先搜索这个文件夹下有哪些子文件和目录，把它们删除，然后再删除自身 
+	
+	if(id <= 0) return;
+	
+	fi t;
+	for(int i = 2; i < SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32; i++)
+		if(Str_Read_32Bytes(clust[id].byte + 32 * i, &t)){//如果读取成功，就申请一段新内存来存文件 
+			if(t.dir == TRUE)
+				Clust_Clear_Dir(t.clust);//递归删除子目录
+			else
+				Clust_Clear_File(t.clust);//递归删除子文件
+			
+			*(clust[id].byte + 32 * i) = 0xE5;//标记为删除 
+		}
+			
+	if(Clust_Judge_Status(clust[id].status) == 0)//如果这个簇后面还有文件 就继续读取 
+		Clust_Clear_Dir(clust[id].status);
 }
 
 void Manu_Print(){//done
