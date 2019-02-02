@@ -63,6 +63,7 @@ long long Str_Scanf_Number(char *, int);//读取n个字节的小端序数字
 void Str_Scanf_String(char *, int, char *);//以二进制格式读取字符串的内容 
 bool Str_Read_32Bytes(char *, fi *);//读取一个文件/文件夹的信息
 void Str_Printf_32Bytes(char *, fi *);//向字符串中输出文件/文件夹的信息
+void Str_Cut_Name_Into_Two(char *, char*, char*);//将一个文件名分隔为两部分 
 
 bool Clust_Judge_Status(int); //判断该簇的状态 
 void Time_Print(int t);//输出时间
@@ -127,7 +128,10 @@ bool Command_Read(){
 	}else if(ISCMD("mkdir")){
 		fi *t = Filelist_Search_File(b);
 		if(t != NULL){//如果这个文件夹已经存在，就返回错误
-			printf("Directory already exists!");
+			printf("Directory already exists!\n");
+			return TRUE;
+		}else if(strlen(b) >= 8){
+			printf("Name too long!\n");
 			return TRUE;
 		}
 		
@@ -170,7 +174,44 @@ bool Command_Read(){
 		
 	}else if(ISCMD("create")){
 		//类似于新建文件夹，但是不用新建 .和.. 
+		fi *t = Filelist_Search_File(b);
+		if(t != NULL){//如果这个文件夹已经存在，就返回错误
+			printf("Directory already exists!\n");
+			return TRUE;
+		}
 		
+		char temp[20];//创建一个临时字符串 
+		strcpy(temp, b);
+		Str_Cut_Name_Into_Two(temp, a, b);
+		
+		if(strlen(a) >= 8 || strlen(b) >=3){
+			printf("Name too long!\n");
+			return TRUE;
+		}
+		
+		int Clust_temp = Clust_now;
+		int k = Dir_Find_Empty(Clust_temp);
+		while(k == -1){
+			if(Clust_Judge_Status(clust[Clust_temp].status) == 0)
+				Clust_temp = clust[Clust_temp].status;//如果这个链表的其他簇还有空位 
+			else{
+				int Clust_new = 2;//这个链表中已经不存在空位了，要找一个空簇，从第二个簇开始找 
+				while(clust[Clust_new].status != 0) Clust_new++;
+				clust[Clust_temp].status = Clust_new;
+				clust[Clust_new].status = 0xFFFF;
+				Clust_temp = Clust_new;
+			}
+			k = Dir_Find_Empty(Clust_temp);//重新寻找空位 
+		}
+			
+		fi *F = (fi*) malloc(sizeof(fi*));//填充基本信息 
+		Make_a_New_File(F, FALSE);
+		clust[Clust_temp].status = 0xFFFF;
+		
+		
+		strcpy(F->name[0], a);//修改文件名称 
+		strcpy(F->name[1], b);//修改文件后缀 
+		Data_Add_A_File(F, Clust_temp, k);//把文件写入簇
 		
 	}else if(ISCMD("rmdir")){
 		/*
@@ -304,20 +345,8 @@ void Data_Save(){
 }
 
 fi *Filelist_Search_File(char *name){
-	char *a = name, *b;
-	if(strcmp(a, "..") == 0 || strcmp(a, ".") == 0){
-		b = (char*) malloc(sizeof(char));
-		*b = 0;
-	}else{
-		while(*name != '.' && *name != 0) name++;
-		if(*name != 0){//有后缀名 
-			*name = 0;
-			b = name + 1;
-		}else{//无后缀名 
-			b = (char*) malloc(sizeof(char));
-			*b = 0;
-		}
-	}
+	char a[20], b[20];
+	Str_Cut_Name_Into_Two(name, a, b);
 	
 	for(fi *p = HEAD; p != NULL; p = p->next)
 		if(strcmp(a, p->name[0]) == 0 && strcmp(b, p->name[1]) == 0)
@@ -447,6 +476,22 @@ void Str_Printf_32Bytes(char *str, fi *t){
 	Str_Printf_Number(str, t->len, 4);
 }
 
+void Str_Cut_Name_Into_Two(char *name, char *a, char *b){
+	char temp[30];
+	strcpy(temp, name);
+	char *t = temp;
+	
+	if(strcmp(t, "..") == 0 || strcmp(t, ".") == 0)
+		strcpy(a, temp);
+	else{
+		while(*t != 0 && *t != '.') t++;
+		if(*t == 0) *(t + 1) = 0;
+		*t = 0;
+		strcpy(a, temp);
+		strcpy(b, t + 1);
+	}
+}
+
 void Filelist_Bubble_Sort(){
 	for(int i = 0; i < FileCnt; i++)
 		for(fi *p = HEAD; p->next != NULL; p = p->next)
@@ -487,6 +532,7 @@ void Data_Add_A_File(fi *F, int id, int k){
 	int newclust = 2;
 	while(clust[newclust].status != 0) newclust++;//寻找一个簇，用来存放文件的信息 
 	clust[newclust].status = 0xFFFF;
+	memset(clust[newclust].byte, 0, sizeof(clust[newclust].byte));
 	F->clust = newclust;
 	
 	Str_Printf_32Bytes(p, F);
@@ -610,8 +656,8 @@ void Make_a_New_File(fi *p, bool IsDir){
 	p->clust = 1;
 	p->len = 0;
 	p->dir = IsDir;
-//	p->time = Time_Get();
-//	p->date = Date_Get();
+	p->time = Time_Get();
+	p->date = Date_Get();
 	p->name[1][0] = 0;
 }
 
