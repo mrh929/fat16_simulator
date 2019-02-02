@@ -32,7 +32,7 @@ struct fi{//一个文件
 }file[1 + CLUST_MAX_COUNT * SECTORS_PER_CLUST * BYTES_PER_SECTOR / 32];
 int FileCnt, Clust_now;//当前文件的总个数与当前的簇 
 fi *HEAD;//头指针 
-char *dir[10000];//存放所有文件夹名字的数组
+char dir[10000][6];//存放所有文件夹名字的数组
 int dir_now; 
 
 void Manu_Print();//打印帮助菜单
@@ -44,6 +44,7 @@ void Data_Create_New();//创建新的类FAT16数据文件
 void Data_Read();//将数据读入内存 
 void Data_Save();//保存文件 
 void Data_DBR_Print();//创建DBR
+void Data_Add_A_File(fi *, int, int);//将clust中指定位置的字符串填充为新文件的信息 
 
 fi *Filelist_Search_File(char *);//在已经读入的文件中寻找对应名称的文件 
 void Filelist_Update(int);//更新文件列表 
@@ -80,13 +81,14 @@ int main(){
 	bool FLAG = FALSE;
 	char rt[6] = "root:";
 	dir_now = 0;
-	dir[dir_now] = rt;
+	strcpy(dir[dir_now], rt);
 	do{
 		Dir_Print();
 		printf(">");
 		FLAG = Command_Read();
 	}while(FLAG);
 	return 0;
+	
 	
 }
 
@@ -108,15 +110,17 @@ bool Command_Read(){
 		Filelist_Print();
 		
 	}else if(ISCMD("cd")){
-		fi *t = Filelist_Search_File(b);
+		char temp[20];
+		strcpy(temp, b);
+		fi *t = Filelist_Search_File(temp);
 		if(t != NULL && t->dir == TRUE){
 			Clust_now = t->clust;
 			if(strcmp(b, "..") == 0){
 				if(dir_now != 0)
 					Dir_Change(b, FALSE);//回退
 			}
-			else if(strcmp(b, ".") !=0)
-				Dir_Change(a, FALSE);
+			else if(strcmp(b, ".") != 0)
+				Dir_Change(b, TRUE);
 		}else
 			printf("Invalid directory!\n\n");
 			
@@ -125,41 +129,43 @@ bool Command_Read(){
 		if(t != NULL){//如果这个文件夹已经存在，就返回错误
 			printf("Directory already exists!");
 			return TRUE;
-		}else{
-			int nxtClust = Clust_now;
-			int k = Dir_Find_Empty(nxtClust);
-			while(k == -1){
-				if(Clust_Judge_Status(clust[nxtClust].status) == 0)
-					nxtClust = clust[nxtClust].status;//如果这个链表的其他簇还有空位 
-				else{
-					nxtClust = 2;//这个链表中已经不存在空位了，要找一个空簇，从第二个簇开始找 
-					while(clust[nxtClust].status != 0) nxtClust++;
-					
-				}
-				k = Dir_Find_Empty(nxtClust);//重新寻找空位 
-			}
-			
-			char *p = clust[nxtClust].byte;
-			p += k * 32;//找到应该插入文件信息的位置 
-			
-			int newclust = 2;
-			while(clust[newclust].status != 0) newclust++;//寻找一个簇，用来存放文件夹内文件的信息 
-			
-			fi *F = (fi*) malloc(sizeof(fi));
-			Make_a_New_File(F, TRUE);
-			F->clust = newclust;
-			clust[newclust].status = 0xFFFF;
-			strcpy(F->name[0], b);
-			
-			Str_Printf_32Bytes(str, F);
-			free(F);
-			
-			/*
-					接下来要在开辟的空间中 填充文件夹信息，并且建立. 和..文件夹 
-			
-			*/
-			
 		}
+		
+		int Clust_temp = Clust_now;
+		int k = Dir_Find_Empty(Clust_temp);
+		while(k == -1){
+			if(Clust_Judge_Status(clust[Clust_temp].status) == 0)
+				Clust_temp = clust[Clust_temp].status;//如果这个链表的其他簇还有空位 
+			else{
+				int Clust_new = 2;//这个链表中已经不存在空位了，要找一个空簇，从第二个簇开始找 
+				while(clust[Clust_new].status != 0) Clust_new++;
+				clust[Clust_temp].status = Clust_new;
+				clust[Clust_new].status = 0xFFFF;
+				Clust_temp = Clust_new;
+			}
+			k = Dir_Find_Empty(Clust_temp);//重新寻找空位 
+		}
+			
+		fi *F = (fi*) malloc(sizeof(fi*));//填充基本信息 
+		Make_a_New_File(F, TRUE);
+		clust[Clust_temp].status = 0xFFFF;
+		strcpy(F->name[0], b);//修改文件夹名称 
+		Data_Add_A_File(F, Clust_temp, k);//把文件写入簇 
+		
+		fi *temp = (fi*) malloc(sizeof(fi*));//再拿一个临时变量
+		Make_a_New_File(temp, TRUE);
+		
+		char *p = clust[F->clust].byte;
+		strcpy(temp->name[0], ".");
+		temp->clust = F->clust; // .文件夹用于存放本文件夹的信息
+		Str_Printf_32Bytes(p, temp);
+		
+		strcpy(temp->name[0], "..");
+		temp->clust = Clust_now; // ..文件夹用于存放上一个文件夹的信息
+		Str_Printf_32Bytes(p + 32, temp);
+		
+		free(F);
+		free(temp);
 		
 		
 	}else if(ISCMD("create")){
@@ -304,15 +310,20 @@ fi *Filelist_Search_File(char *name){
 		*b = 0;
 	}else{
 		while(*name != '.' && *name != 0) name++;
-		if(*name != 0){
+		if(*name != 0){//有后缀名 
 			*name = 0;
 			b = name + 1;
+		}else{//无后缀名 
+			b = (char*) malloc(sizeof(char));
+			*b = 0;
 		}
 	}
 	
 	for(fi *p = HEAD; p != NULL; p = p->next)
 		if(strcmp(a, p->name[0]) == 0 && strcmp(b, p->name[1]) == 0)
 			return p;//找到了 
+			
+			
 	return NULL;//没找到 
 }
 
@@ -339,6 +350,7 @@ void Filelist_Update(int id){
 		if(Str_Read_32Bytes(clust[id].byte + 32 * i, &t)){//如果读取成功，就申请一段新内存来存文件 
 			fi *p = (fi *) malloc(sizeof(fi));
 			*p = t;
+			p->next = NULL;
 			Filelist_Add_File(p);
 		}
 			
@@ -468,6 +480,19 @@ void Data_DBR_Print(){//done
 	File_Printf_Number(43605, 2);
 }
 
+void Data_Add_A_File(fi *F, int id, int k){
+	char *p = clust[id].byte;
+	p += k * 32;//将指针移动到需要修改的那个文件信息之前 
+		
+	int newclust = 2;
+	while(clust[newclust].status != 0) newclust++;//寻找一个簇，用来存放文件的信息 
+	clust[newclust].status = 0xFFFF;
+	F->clust = newclust;
+	
+	Str_Printf_32Bytes(p, F);
+	
+}
+
 void Str_Printf_Number(char *str, long long sum, int n){
 	long long m;
 	for(int i = 0; i < n; i++){
@@ -565,7 +590,7 @@ void Dir_Change(char *p, bool NEW){
 	if(NEW == FALSE)
 		dir_now--;
 	else
-		dir[++dir_now] = p;
+		strcpy(dir[++dir_now], p);
 }
 
 void Dir_Print(){
@@ -585,8 +610,8 @@ void Make_a_New_File(fi *p, bool IsDir){
 	p->clust = 1;
 	p->len = 0;
 	p->dir = IsDir;
-	p->time = Time_Get();
-	p->date = Date_Get();
+//	p->time = Time_Get();
+//	p->date = Date_Get();
 	p->name[1][0] = 0;
 }
 
